@@ -889,10 +889,36 @@ def main():
                         # Feature importance table
                         st.subheader("Top Feature Contributions")
                         
-                        feature_importance = pd.DataFrame({
-                            'Feature': predictor.feature_names,
-                            'Importance': np.abs(shap_values).mean(axis=0)
-                        }).sort_values('Importance', ascending=False)
+                        # Safe SHAP Feature Importance Calculation
+                        import numpy as np
+                        import pandas as pd
+                        import streamlit as st
+                        
+                        try:
+                            shap_importances = np.abs(shap_values).mean(axis=0)
+                            shap_importances = np.ravel(shap_importances)
+                        
+                            feature_names = getattr(predictor, "feature_names_in_", None)
+                            if feature_names is None:
+                                feature_names = getattr(predictor, "feature_names", None)
+                            if feature_names is None:
+                                feature_names = [f"Feature_{i}" for i in range(len(shap_importances))]
+                        
+                            feature_names = np.ravel(feature_names).tolist()
+                        
+                            min_len = min(len(feature_names), len(shap_importances))
+                            feature_names = feature_names[:min_len]
+                            shap_importances = shap_importances[:min_len]
+                        
+                            feature_importance = pd.DataFrame({
+                                'Feature': feature_names,
+                                'Importance': shap_importances
+                            }).sort_values('Importance', ascending=False)
+                        
+                        except Exception as e:
+                            st.error(f"SHAP feature importance calculation failed: {e}")
+                            feature_importance = pd.DataFrame(columns=["Feature", "Importance"])
+
                         
                         st.dataframe(feature_importance.head(15), use_container_width=True)
                         
@@ -1352,4 +1378,5 @@ if __name__ == "__main__":
             This system should not replace clinical judgment or professional medical advice.
         </p>
     </div>
+
     """, unsafe_allow_html=True)
