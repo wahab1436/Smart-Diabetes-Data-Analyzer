@@ -863,6 +863,7 @@ def main():
             st.subheader("Global Feature Importance")
             
             shap_success = False
+            feature_importance = None
             
             try:
                 with st.spinner("Calculating SHAP values..."):
@@ -870,29 +871,58 @@ def main():
                     X_data = df[predictor.feature_names].copy()
                     X_sample = X_data.sample(min(100, len(X_data)), random_state=42)
                     
-                    # Use the safer SHAP computation method from the model class
-                    shap_values, explainer = predictor.get_shap_values(X_sample)
-
-
+                    # Create SHAP explainer
+                    explainer = shap.TreeExplainer(predictor.model)
+                    shap_values = explainer.shap_values(X_sample)
+                    
+                    # Handle binary classification output
+                    if isinstance(shap_values, list):
+                        if len(shap_values) == 2:
+                            shap_values = shap_values[1]  # Use positive class
+                        else:
+                            shap_values = shap_values[0]
+                    
+                    # Convert to numpy array if needed
+                    shap_values = np.array(shap_values)
+                    
+                    # Verify dimensions
+                    if shap_values.ndim == 1:
+                        shap_values = shap_values.reshape(-1, 1)
                     
                     # Verify SHAP values are valid
-                    if shap_values is not None and hasattr(shap_values, 'shape'):
+                    if shap_values is not None and shap_values.shape[0] > 0:
                         # Plot SHAP summary
                         st.success("SHAP values calculated successfully!")
                         
                         fig, ax = plt.subplots(figsize=(10, 8))
-                        shap.summary_plot(shap_values, X_sample, feature_names=predictor.feature_names, 
-                                        show=False, plot_type='bar', max_display=15)
-                        st.pyplot(fig)
-                        plt.close()
+                        try:
+                            shap.summary_plot(shap_values, X_sample, feature_names=predictor.feature_names, 
+                                            show=False, plot_type='bar', max_display=15)
+                            st.pyplot(fig)
+                        except:
+                            st.info("SHAP plot could not be generated, showing table instead.")
+                        finally:
+                            plt.close()
                         
                         # Feature importance table
                         st.subheader("Top Feature Contributions")
                         
+                        # Calculate mean absolute SHAP values safely
+                        mean_shap = np.abs(shap_values).mean(axis=0)
+                        
+                        # Ensure it's 1D
+                        if mean_shap.ndim > 1:
+                            mean_shap = mean_shap.flatten()
+                        
+                        # Ensure lengths match
+                        if len(mean_shap) != len(predictor.feature_names):
+                            st.warning(f"Dimension mismatch: {len(mean_shap)} SHAP values vs {len(predictor.feature_names)} features")
+                            mean_shap = mean_shap[:len(predictor.feature_names)]
+                        
                         feature_importance = pd.DataFrame({
-                            'Feature': predictor.feature_names,
-                            'Importance': np.abs(shap_values).mean(axis=0)
-                        }).sort_values('Importance', ascending=False)
+                            'Feature': predictor.feature_names[:len(mean_shap)],
+                            'Importance': mean_shap
+                        }).sort_values('Importance', ascending=False).reset_index(drop=True)
                         
                         st.dataframe(feature_importance.head(15), use_container_width=True)
                         
@@ -912,32 +942,50 @@ def main():
                         shap_success = True
                         
                     else:
-                        raise ValueError("SHAP values are invalid")
+                        raise ValueError("SHAP values are invalid or empty")
                         
             except Exception as e:
                 st.warning(f"SHAP calculation encountered an issue: {str(e)}")
                 st.info("Falling back to XGBoost native feature importance...")
             
             # Fallback to XGBoost feature importance if SHAP fails
-            if not shap_success:
+            if not shap_success or feature_importance is None:
                 try:
                     st.subheader("XGBoost Feature Importance (Fallback Method)")
                     
                     # Get feature importance from XGBoost model
-                    importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
-                    
-                    # Map to feature names
-                    feature_importance = pd.DataFrame([
-            {
-                'Feature': predictor.feature_names[int(k.replace('f', ''))]
-                if k.startswith('f') and k.replace('f', '').isdigit()
-                and int(k.replace('f', '')) < len(predictor.feature_names)
-                else k,
-                'Importance': v
-            }
-            for k, v in importance_dict.items()
-        ]).sort_values('Importance', ascending=False)
-
+                    try:
+                        importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
+                        
+                        # Map to feature names
+                        importance_list = []
+                        for k, v in importance_dict.items():
+                            try:
+                                idx = int(k.replace('f', ''))
+                                if idx < len(predictor.feature_names):
+                                    importance_list.append({
+                                        'Feature': predictor.feature_names[idx], 
+                                        'Importance': v
+                                    })
+                            except:
+                                continue
+                        
+                        feature_importance = pd.DataFrame(importance_list).sort_values('Importance', ascending=False).reset_index(drop=True)
+                        
+                    except:
+                        # Last resort: use feature_importances_ attribute
+                        if hasattr(predictor.model, 'feature_importances_'):
+                            importances = predictor.model.feature_importances_
+                            
+                            # Ensure dimensions match
+                            min_len = min(len(importances), len(predictor.feature_names))
+                            
+                            feature_importance = pd.DataFrame({
+                                'Feature': predictor.feature_names[:min_len],
+                                'Importance': importances[:min_len]
+                            }).sort_values('Importance', ascending=False).reset_index(drop=True)
+                        else:
+                            raise ValueError("No feature importance available")
                     
                     st.dataframe(feature_importance.head(15), use_container_width=True)
                     
@@ -947,7 +995,7 @@ def main():
                         x='Importance',
                         y='Feature',
                         orientation='h',
-                        title='Top 10 Features by XGBoost Gain',
+                        title='Top 10 Features by XGBoost Importance',
                         color='Importance',
                         color_continuous_scale='Viridis'
                     )
@@ -958,22 +1006,10 @@ def main():
                     
                 except Exception as e:
                     st.error(f"Could not calculate feature importance: {str(e)}")
-                    
-                    # Last resort: use feature_importances_ attribute
-                    try:
-                        if hasattr(predictor.model, 'feature_importances_'):
-                            feature_importance = pd.DataFrame({
-                                'Feature': predictor.feature_names,
-                                'Importance': predictor.model.feature_importances_
-                            }).sort_values('Importance', ascending=False)
-                            
-                            st.dataframe(feature_importance.head(15), use_container_width=True)
-                            shap_success = True
-                    except:
-                        st.error("Unable to extract any feature importance. Please retrain the model.")
+                    st.info("Please retrain the model and try again.")
             
             # Clinical insights (only if we have feature importance)
-            if shap_success:
+            if shap_success and feature_importance is not None and len(feature_importance) > 0:
                 st.subheader("Clinical Insights")
                 
                 # Get top 5 features
@@ -992,13 +1028,15 @@ def main():
                         'A1C_level': "Higher A1C levels reflect long-term glucose control issues.",
                         'num_emergency': "Emergency room visits indicate acute complications or poor outpatient management.",
                         'total_visits': "High healthcare utilization suggests complex medical needs.",
-                        'comorbidity_score': "Higher comorbidity burden increases readmission risk."
+                        'comorbidity_score': "Higher comorbidity burden increases readmission risk.",
+                        'num_outpatient': "Outpatient visit frequency reflects ongoing care needs and disease monitoring."
                     }
                     
                     for idx, feature in enumerate(top_features, 1):
                         matched = False
+                        feature_lower = str(feature).lower()
                         for key in insights.keys():
-                            if key in feature.lower():
+                            if key in feature_lower:
                                 st.info(f"**{idx}. {feature}**: {insights[key]}")
                                 matched = True
                                 break
@@ -1006,7 +1044,7 @@ def main():
                             st.info(f"**{idx}. {feature}**: Significant predictor of readmission risk based on model analysis.")
                 
                 except Exception as e:
-                    st.warning("Could not generate clinical insights.")
+                    st.warning(f"Could not generate clinical insights: {str(e)}")
             
             # Model details
             st.subheader("Model Configuration")
@@ -1030,57 +1068,42 @@ def main():
                 st.write("- Transparency: High")
                 st.write(f"- Feature Count: {len(predictor.feature_names)}")
             
+            # Clinical recommendations
+            st.subheader("Clinical Recommendations")
+            
+            st.markdown("""
+            <div style='background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>High-Risk Patient Management</h4>
+                <p>Patients with risk probability above 70% should receive enhanced discharge planning, 
+                including comprehensive medication reconciliation and 48-hour follow-up appointments.</p>
+            </div>
+            
+            <div style='background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Medication Optimization</h4>
+                <p>Review polypharmacy cases where patients are on more than 15 medications. 
+                Consider deprescribing protocols and pharmacist consultation.</p>
+            </div>
+            
+            <div style='background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Resource Allocation</h4>
+                <p>Focus intensive case management resources on patients with extended hospital stays 
+                and multiple comorbidities for maximum impact.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
             # Feature importance table
-            # Feature importance table (use SHAP if available, else fallback)
             st.subheader("Top Feature Contributions")
-
-            if 'shap_values' in locals() and shap_values is not None:
-                # SHAP succeeded
-                feature_importance = pd.DataFrame({
-                    'Feature': predictor.feature_names,
-                    'Importance': np.abs(shap_values).mean(axis=0)
-                }).sort_values('Importance', ascending=False)
-            else:
-                # Fallback: use model-based feature importance if SHAP failed
-                try:
-                    importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
-
-                    feature_importance = pd.DataFrame([
-                        {
-                            'Feature': predictor.feature_names[int(k.replace('f', ''))]
-                            if k.startswith('f') and k.replace('f', '').isdigit()
-                            else k,
-                            'Importance': v
-                        }
-                        for k, v in importance_dict.items()
-                    ]).sort_values('Importance', ascending=False)
-
-                except Exception as e:
-                    st.warning(f"Could not calculate fallback feature importance: {e}")
-                    feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
-
-            # Display feature importance if available
-            if not feature_importance.empty:
-                st.dataframe(feature_importance.head(15), use_container_width=True)
-
-                # Optional: bar chart visualization
-                fig_bar = px.bar(
-                    feature_importance.head(10),
-                    x='Importance',
-                    y='Feature',
-                    orientation='h',
-                    title='Top 10 Features by Importance',
-                    color='Importance',
-                    color_continuous_scale='Blues'
-                )
-                fig_bar.update_layout(yaxis={'categoryorder': 'total ascending'})
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                st.info("No valid feature importance data available.")
-
-            # Continue to next section
+            
+            # Calculate mean absolute SHAP values
+            feature_importance = pd.DataFrame({
+                'Feature': predictor.feature_names,
+                'Importance': np.abs(shap_values).mean(axis=0)
+            }).sort_values('Importance', ascending=False)
+            
+            st.dataframe(feature_importance.head(10))
+            
+            # Key insights
             st.subheader("Clinical Insights")
-
             
             top_features = feature_importance.head(3)['Feature'].tolist()
             
@@ -1353,3 +1376,4 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
