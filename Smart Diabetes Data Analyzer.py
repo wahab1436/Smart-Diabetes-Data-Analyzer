@@ -853,284 +853,291 @@ def main():
     
     elif page == "Model Explainability":
         st.header("SHAP Model Explainability")
-    
-        # Basic guards and initialization
-        if not st.session_state.get("predictions"):
+        
+        if not st.session_state.predictions:
             st.warning("Please train the prediction model first.")
         else:
             df = st.session_state.cleaned_data
-            predictor = st.session_state.predictions.get("predictor")
-    
-            if predictor is None:
-                st.error("Predictor object not found in session state.")
-            else:
-                st.subheader("Global Feature Importance")
-    
-                # Initialize variables so they exist in all control flows
-                shap_success = False
-                shap_values = None
-                feature_importance = pd.DataFrame(columns=["Feature", "Importance"])
-                explainer = None
-    
-                # Try computing SHAP values using a robust procedure
-                try:
-                    with st.spinner("Calculating SHAP values..."):
-                        # Determine feature names safely
-                        # Prefer predictor.feature_names_in_ (sklearn style), then predictor.feature_names, then dataframe columns
-                        if hasattr(predictor, "feature_names_in_"):
-                            feature_names = list(getattr(predictor, "feature_names_in_"))
-                        elif hasattr(predictor, "feature_names"):
-                            # Could be numpy array or list; convert to list
-                            feature_names = list(np.ravel(getattr(predictor, "feature_names")))
-                        else:
-                            # Fallback to dataframe columns (only those used for modeling)
-                            feature_names = list(df.columns)
-    
-                        # Prepare X_data using columns that are available
-                        available_cols = [c for c in feature_names if c in df.columns]
-                        if not available_cols:
-                            # If none of the feature_names exist in df, fall back to df.columns
-                            available_cols = list(df.columns)
-    
-                        X_data = df[available_cols].copy()
-    
-                        # Use a sample (same as original intent)
-                        sample_n = min(100, len(X_data))
-                        if sample_n <= 0:
-                            raise ValueError("No rows available in cleaned data to compute SHAP.")
-    
-                        X_sample = X_data.sample(sample_n, random_state=42)
-    
-                        # Preferred: allow predictor to expose a safe method if implemented
-                        if hasattr(predictor, "get_shap_values"):
-                            # Predictor.get_shap_values may return (shap_values, explainer) or just shap_values
-                            res = predictor.get_shap_values(X_sample)
-                            if isinstance(res, tuple) and len(res) >= 1:
-                                shap_values = res[0]
-                                if len(res) >= 2:
-                                    explainer = res[1]
-                            else:
-                                shap_values = res
-                        else:
-                            # Fallback: try shap.TreeExplainer (works for XGBoost and tree models)
-                            try:
-                                explainer = shap.TreeExplainer(getattr(predictor, "model", predictor))
-                                shap_values = explainer.shap_values(X_sample)
-                            except Exception:
-                                # Try generic shap.Explainer (works with many model types)
-                                try:
-                                    explainer = shap.Explainer(getattr(predictor, "model", predictor))
-                                    shap_out = explainer(X_sample)
-                                    # shap.Explainer returns an object; values are in .values
-                                    shap_values = getattr(shap_out, "values", shap_out)
-                                except Exception as inner_e:
-                                    raise RuntimeError(f"SHAP explainer creation failed: {inner_e}")
-    
-                        # At this point shap_values may be:
-                        # - numpy array of shape (n_samples, n_features)
-                        # - list/array of arrays (multi-output)
-                        # - shap output object with .values property
-                        # Normalize shap_values to a numpy array 'shap_arr' with shape (n_samples, n_features)
-                        if shap_values is None:
-                            raise ValueError("SHAP returned None")
-    
-                        # If shap_values is an object with .values (e.g., shap.Explanation)
-                        if hasattr(shap_values, "values"):
-                            shap_arr = np.array(getattr(shap_values, "values"))
-                        else:
-                            shap_arr = np.array(shap_values)
-    
-                        # If shap_arr is multi-output: try to reduce to single (average across outputs)
-                        # shap_arr could be shape (n_outputs, n_samples, n_features) or (n_samples, n_features, ...)
-                        if shap_arr.ndim == 3:
-                            # common case: list-like outputs -> average across first axis (outputs)
-                            shap_arr = shap_arr.mean(axis=0)
-                        elif shap_arr.ndim > 3:
-                            # flatten extra dims by averaging last axes
-                            shap_arr = shap_arr.reshape(shap_arr.shape[0], -1)
-                            if shap_arr.ndim == 2:
-                                pass
-                            else:
-                                shap_arr = np.mean(shap_arr, axis=0)
-    
-                        # Ensure shape is (n_samples, n_features)
-                        if shap_arr.ndim != 2:
-                            # Try to squeeze to 2D
-                            shap_arr = np.squeeze(shap_arr)
-                        if shap_arr.ndim != 2:
-                            raise ValueError(f"Unexpected SHAP array shape: {shap_arr.shape}")
-    
-                        # Now compute per-feature importance (mean absolute value across samples)
-                        shap_importances = np.abs(shap_arr).mean(axis=0)
-                        shap_importances = np.ravel(shap_importances)
-    
-                        # Ensure feature names align with shap_importances length
-                        # If available_cols length differs, use X_sample.columns
-                        final_feature_names = available_cols
-                        if len(final_feature_names) != len(shap_importances):
-                            # fallback to X_sample.columns
-                            final_feature_names = list(X_sample.columns)
-                        min_len = min(len(final_feature_names), len(shap_importances))
-                        final_feature_names = final_feature_names[:min_len]
-                        shap_importances = shap_importances[:min_len]
-    
-                        # Build DataFrame safely
-                        feature_importance = pd.DataFrame({
-                            "Feature": final_feature_names,
-                            "Importance": shap_importances
-                        }).sort_values("Importance", ascending=False).reset_index(drop=True)
-    
-                        # Show SHAP summary plot (bar) if possible
-                        try:
-                            fig, ax = plt.subplots(figsize=(10, 8))
-                            # shap.summary_plot supports numpy arrays and pandas DataFrame for features
-                            shap.summary_plot(shap_arr, X_sample.iloc[:, :shap_arr.shape[1]], feature_names=final_feature_names,
-                                              show=False, plot_type="bar", max_display=15)
-                            st.pyplot(fig)
-                            plt.close(fig)
-                        except Exception:
-                            # If plotting fails, continue but still show table/plotly chart
-                            pass
-    
-                        # Display table and interactive bar chart
-                        if not feature_importance.empty:
-                            st.subheader("Top Feature Contributions (SHAP)")
-                            st.dataframe(feature_importance.head(15), use_container_width=True)
-    
-                            fig_bar = px.bar(
-                                feature_importance.head(10).sort_values("Importance", ascending=True),
-                                x="Importance",
-                                y="Feature",
-                                orientation="h",
-                                title="Top 10 Features by SHAP Importance",
-                                color="Importance",
-                                color_continuous_scale="Blues"
-                            )
-                            st.plotly_chart(fig_bar, use_container_width=True)
-    
-                        shap_success = True
-    
-                except Exception as e:
-                    # Log and show a friendly warning; we will attempt fallback methods
-                    st.warning(f"SHAP calculation encountered an issue: {str(e)}")
-                    st.info("Falling back to XGBoost native feature importance or model feature_importances_.")
-    
-                # If SHAP failed, try XGBoost native importance or model.feature_importances_
-                if not shap_success:
-                    try:
-                        st.subheader("XGBoost Feature Importance (Fallback Method)")
-                        # Use XGBoost booster get_score
-                        booster = None
-                        if hasattr(predictor, "model"):
-                            try:
-                                booster = predictor.model.get_booster()
-                            except Exception:
-                                booster = None
-    
-                        importance_dict = {}
-                        if booster is not None:
-                            importance_dict = booster.get_score(importance_type="gain") or {}
-                        else:
-                            # If predictor.model isn't an XGBoost object, try attribute feature_importances_
-                            importance_dict = {}
-    
-                        if importance_dict:
-                            rows = []
-                            for k, v in importance_dict.items():
-                                # XGBoost uses keys like 'f0', 'f1' -> map to feature names, if available
-                                if isinstance(k, str) and k.startswith("f") and k.replace("f", "").isdigit():
-                                    idx = int(k.replace("f", ""))
-                                    if idx < len(final_feature_names):
-                                        feat = final_feature_names[idx]
-                                    else:
-                                        feat = k
-                                else:
-                                    feat = k
-                                rows.append({"Feature": feat, "Importance": float(v)})
-                            feature_importance = pd.DataFrame(rows).sort_values("Importance", ascending=False).reset_index(drop=True)
-                            st.dataframe(feature_importance.head(15), use_container_width=True)
-    
-                            fig_bar = px.bar(
-                                feature_importance.head(10).sort_values("Importance", ascending=True),
-                                x="Importance",
-                                y="Feature",
-                                orientation="h",
-                                title="Top 10 Features by XGBoost Gain",
-                                color="Importance",
-                                color_continuous_scale="Viridis"
-                            )
-                            st.plotly_chart(fig_bar, use_container_width=True)
-                            shap_success = True
-                        else:
-                            # Try model.feature_importances_
-                            if hasattr(predictor, "model") and hasattr(predictor.model, "feature_importances_"):
-                                importances = np.ravel(predictor.model.feature_importances_)
-                                fnames = final_feature_names if len(final_feature_names) == len(importances) else list(df.columns)[:len(importances)]
-                                feature_importance = pd.DataFrame({
-                                    "Feature": fnames,
-                                    "Importance": importances
-                                }).sort_values("Importance", ascending=False).reset_index(drop=True)
-                                st.dataframe(feature_importance.head(15), use_container_width=True)
-    
-                                fig_bar = px.bar(
-                                    feature_importance.head(10).sort_values("Importance", ascending=True),
-                                    x="Importance",
-                                    y="Feature",
-                                    orientation="h",
-                                    title="Top 10 Features by Model Importance",
-                                    color="Importance",
-                                    color_continuous_scale="Viridis"
-                                )
-                                st.plotly_chart(fig_bar, use_container_width=True)
-                                shap_success = True
-    
-                    except Exception as e:
-                        st.error(f"Could not calculate fallback feature importance: {str(e)}")
-    
-                # Clinical insights (only if we have feature importance)
-                if shap_success and not feature_importance.empty:
-                    st.subheader("Clinical Insights")
-                    try:
-                        top_features = feature_importance.head(5)["Feature"].tolist()
-                        insights_map = {
-                            "time_in_hospital": "Longer hospital stays correlate with higher readmission risk due to increased disease complexity.",
-                            "num_medications": "Patients on multiple medications show increased readmission likelihood due to comorbidities and polypharmacy risks.",
-                            "num_lab_procedures": "High lab procedure counts indicate more intensive monitoring requirements and disease severity.",
-                            "age": "Advanced age is associated with higher readmission risk due to decreased physiological reserve.",
-                            "num_procedures": "Multiple procedures suggest complex medical needs requiring careful post-discharge management."
-                        }
-    
-                        for idx, feature in enumerate(top_features, start=1):
-                            matched = None
-                            for k, text in insights_map.items():
-                                if k in feature.lower():
-                                    matched = text
-                                    break
-                            if matched:
-                                st.info(f"**{idx}. {feature}**: {matched}")
-                            else:
-                                st.info(f"**{idx}. {feature}**: Significant predictor of readmission risk based on model analysis.")
-                    except Exception:
-                        st.warning("Could not generate clinical insights from feature importance.")
-    
-                # Model details & configuration
-                st.subheader("Model Configuration")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**XGBoost Parameters**")
-                    st.write("- Algorithm: Gradient Boosting")
-                    st.write("- Trees: 100")
-                    st.write("- Max Depth: 6")
-                    st.write("- Learning Rate: 0.1")
-                    st.write("- Subsample: 0.8")
-                    st.write("- Colsample by Tree: 0.8")
-                with col2:
-                    st.markdown("**Explainability Method**")
-                    st.write("- Primary: SHAP (SHapley Additive exPlanations)")
-                    st.write("- Fallback: XGBoost Native Importance or model.feature_importances_")
-                    st.write("- Interpretation: Global Feature Importance")
-                    st.write(f"- Feature Count: {len(final_feature_names)}")
+            predictor = st.session_state.predictions['predictor']
+            
+            st.subheader("Global Feature Importance")
+            
+            shap_success = False
+            
+            try:
+                with st.spinner("Calculating SHAP values..."):
+                    # Prepare data
+                    X_data = df[predictor.feature_names].copy()
+                    X_sample = X_data.sample(min(100, len(X_data)), random_state=42)
+                    
+                    # Use the safer SHAP computation method from the model class
+                    shap_values, explainer = predictor.get_shap_values(X_sample)
 
+
+                    
+                    # Verify SHAP values are valid
+                    if shap_values is not None and hasattr(shap_values, 'shape'):
+                        # Plot SHAP summary
+                        st.success("SHAP values calculated successfully!")
+                        
+                        fig, ax = plt.subplots(figsize=(10, 8))
+                        shap.summary_plot(shap_values, X_sample, feature_names=predictor.feature_names, 
+                                        show=False, plot_type='bar', max_display=15)
+                        st.pyplot(fig)
+                        plt.close()
+                        
+                        # Feature importance table
+                        st.subheader("Top Feature Contributions")
+                        
+                        feature_importance = pd.DataFrame({
+                            'Feature': predictor.feature_names,
+                            'Importance': np.abs(shap_values).mean(axis=0)
+                        }).sort_values('Importance', ascending=False)
+                        
+                        st.dataframe(feature_importance.head(15), use_container_width=True)
+                        
+                        # Bar chart for top features
+                        fig_bar = px.bar(
+                            feature_importance.head(10),
+                            x='Importance',
+                            y='Feature',
+                            orientation='h',
+                            title='Top 10 Features by SHAP Importance',
+                            color='Importance',
+                            color_continuous_scale='Blues'
+                        )
+                        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                        
+                        shap_success = True
+                        
+                    else:
+                        raise ValueError("SHAP values are invalid")
+                        
+            except Exception as e:
+                st.warning(f"SHAP calculation encountered an issue: {str(e)}")
+                st.info("Falling back to XGBoost native feature importance...")
+            
+            # Fallback to XGBoost feature importance if SHAP fails
+            if not shap_success:
+                try:
+                    st.subheader("XGBoost Feature Importance (Fallback Method)")
+                    
+                    # Get feature importance from XGBoost model
+                    importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
+                    
+                    # Map to feature names
+                    feature_importance = pd.DataFrame([
+            {
+                'Feature': predictor.feature_names[int(k.replace('f', ''))]
+                if k.startswith('f') and k.replace('f', '').isdigit()
+                and int(k.replace('f', '')) < len(predictor.feature_names)
+                else k,
+                'Importance': v
+            }
+            for k, v in importance_dict.items()
+        ]).sort_values('Importance', ascending=False)
+
+                    
+                    st.dataframe(feature_importance.head(15), use_container_width=True)
+                    
+                    # Bar chart
+                    fig_bar = px.bar(
+                        feature_importance.head(10),
+                        x='Importance',
+                        y='Feature',
+                        orientation='h',
+                        title='Top 10 Features by XGBoost Gain',
+                        color='Importance',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                    
+                    shap_success = True
+                    
+                except Exception as e:
+                    st.error(f"Could not calculate feature importance: {str(e)}")
+                    
+                    # Last resort: use feature_importances_ attribute
+                    try:
+                        if hasattr(predictor.model, 'feature_importances_'):
+                            feature_importance = pd.DataFrame({
+                                'Feature': predictor.feature_names,
+                                'Importance': predictor.model.feature_importances_
+                            }).sort_values('Importance', ascending=False)
+                            
+                            st.dataframe(feature_importance.head(15), use_container_width=True)
+                            shap_success = True
+                    except:
+                        st.error("Unable to extract any feature importance. Please retrain the model.")
+            
+            # Clinical insights (only if we have feature importance)
+            if shap_success:
+                st.subheader("Clinical Insights")
+                
+                # Get top 5 features
+                try:
+                    top_features = feature_importance.head(5)['Feature'].tolist()
+                    
+                    insights = {
+                        'time_in_hospital': "Longer hospital stays correlate with higher readmission risk due to increased disease complexity.",
+                        'num_medications': "Patients on multiple medications show increased readmission likelihood due to comorbidities and polypharmacy risks.",
+                        'num_lab_procedures': "High lab procedure counts indicate more intensive monitoring requirements and disease severity.",
+                        'age': "Advanced age is associated with higher readmission risk due to decreased physiological reserve.",
+                        'num_procedures': "Multiple procedures suggest complex medical needs requiring careful post-discharge management.",
+                        'number_diagnoses': "Multiple diagnoses indicate comorbidity burden and increased care complexity.",
+                        'num_inpatient': "Prior inpatient visits suggest chronic conditions requiring ongoing management.",
+                        'glucose_level': "Elevated glucose levels indicate poor glycemic control and diabetes management challenges.",
+                        'A1C_level': "Higher A1C levels reflect long-term glucose control issues.",
+                        'num_emergency': "Emergency room visits indicate acute complications or poor outpatient management.",
+                        'total_visits': "High healthcare utilization suggests complex medical needs.",
+                        'comorbidity_score': "Higher comorbidity burden increases readmission risk."
+                    }
+                    
+                    for idx, feature in enumerate(top_features, 1):
+                        matched = False
+                        for key in insights.keys():
+                            if key in feature.lower():
+                                st.info(f"**{idx}. {feature}**: {insights[key]}")
+                                matched = True
+                                break
+                        if not matched:
+                            st.info(f"**{idx}. {feature}**: Significant predictor of readmission risk based on model analysis.")
+                
+                except Exception as e:
+                    st.warning("Could not generate clinical insights.")
+            
+            # Model details
+            st.subheader("Model Configuration")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**XGBoost Parameters**")
+                st.write("- Algorithm: Gradient Boosting")
+                st.write("- Trees: 100")
+                st.write("- Max Depth: 6")
+                st.write("- Learning Rate: 0.1")
+                st.write("- Subsample: 0.8")
+                st.write("- Colsample by Tree: 0.8")
+            
+            with col2:
+                st.markdown("**Explainability Method**")
+                st.write("- Primary: SHAP (SHapley Additive exPlanations)")
+                st.write("- Fallback: XGBoost Native Importance")
+                st.write("- Interpretation: Global Feature Importance")
+                st.write("- Transparency: High")
+                st.write(f"- Feature Count: {len(predictor.feature_names)}")
+            
+            # Feature importance table
+            # Feature importance table (use SHAP if available, else fallback)
+            st.subheader("Top Feature Contributions")
+
+            if 'shap_values' in locals() and shap_values is not None:
+                # SHAP succeeded
+                feature_importance = pd.DataFrame({
+                    'Feature': predictor.feature_names,
+                    'Importance': np.abs(shap_values).mean(axis=0)
+                }).sort_values('Importance', ascending=False)
+            else:
+                # Fallback: use model-based feature importance if SHAP failed
+                try:
+                    importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
+
+                    feature_importance = pd.DataFrame([
+                        {
+                            'Feature': predictor.feature_names[int(k.replace('f', ''))]
+                            if k.startswith('f') and k.replace('f', '').isdigit()
+                            else k,
+                            'Importance': v
+                        }
+                        for k, v in importance_dict.items()
+                    ]).sort_values('Importance', ascending=False)
+
+                except Exception as e:
+                    st.warning(f"Could not calculate fallback feature importance: {e}")
+                    feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
+
+            # Display feature importance if available
+            if not feature_importance.empty:
+                st.dataframe(feature_importance.head(15), use_container_width=True)
+
+                # Optional: bar chart visualization
+                fig_bar = px.bar(
+                    feature_importance.head(10),
+                    x='Importance',
+                    y='Feature',
+                    orientation='h',
+                    title='Top 10 Features by Importance',
+                    color='Importance',
+                    color_continuous_scale='Blues'
+                )
+                fig_bar.update_layout(yaxis={'categoryorder': 'total ascending'})
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("No valid feature importance data available.")
+
+            # Continue to next section
+            st.subheader("Clinical Insights")
+
+            
+            top_features = feature_importance.head(3)['Feature'].tolist()
+            
+            insights = {
+                'time_in_hospital': "Longer hospital stays correlate with higher readmission risk due to increased disease complexity.",
+                'num_medications': "Patients on multiple medications show increased readmission likelihood due to comorbidities and polypharmacy risks.",
+                'num_lab_procedures': "High lab procedure counts indicate more intensive monitoring requirements and disease severity.",
+                'age': "Advanced age is associated with higher readmission risk due to decreased physiological reserve.",
+                'num_procedures': "Multiple procedures suggest complex medical needs requiring careful post-discharge management."
+            }
+            
+            for feature in top_features:
+                if any(key in feature.lower() for key in insights.keys()):
+                    matching_key = next(key for key in insights.keys() if key in feature.lower())
+                    st.info(f"**{feature}**: {insights[matching_key]}")
+            
+            # Model details
+            st.subheader("Model Configuration")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**XGBoost Parameters**")
+                st.write("- Algorithm: Gradient Boosting")
+                st.write("- Trees: 100")
+                st.write("- Max Depth: 6")
+                st.write("- Learning Rate: 0.1")
+            
+            with col2:
+                st.markdown("**Explainability Method**")
+                st.write("- Method: SHAP (SHapley Additive exPlanations)")
+                st.write("- Interpretation: Global + Local")
+                st.write("- Transparency: High")
+                st.write("- Feature Count:", len(predictor.feature_names))
+            
+            # Clinical recommendations
+            st.subheader("Clinical Recommendations")
+            
+            st.markdown("""
+            <div style='background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>High-Risk Patient Management</h4>
+                <p>Patients with risk probability above 70% should receive enhanced discharge planning, 
+                including comprehensive medication reconciliation and 48-hour follow-up appointments.</p>
+            </div>
+            
+            <div style='background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Medication Optimization</h4>
+                <p>Review polypharmacy cases where patients are on more than 15 medications. 
+                Consider deprescribing protocols and pharmacist consultation.</p>
+            </div>
+            
+            <div style='background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Resource Allocation</h4>
+                <p>Focus intensive case management resources on patients with extended hospital stays 
+                and multiple comorbidities for maximum impact.</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     # ========================================================================
     # PAGE 6: EXPORT RESULTS
@@ -1345,6 +1352,4 @@ if __name__ == "__main__":
             This system should not replace clinical judgment or professional medical advice.
         </p>
     </div>
-
     """, unsafe_allow_html=True)
-
