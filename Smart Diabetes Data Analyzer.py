@@ -1122,76 +1122,7 @@ def main():
                 and multiple comorbidities for maximum impact.</p>
             </div>
             """, unsafe_allow_html=True)
-            # Feature importance table
-            st.subheader("Top Feature Contributions")
             
-            # Calculate mean absolute SHAP values
-            feature_importance = pd.DataFrame({
-                'Feature': predictor.feature_names,
-                'Importance': np.abs(shap_values).mean(axis=0)
-            }).sort_values('Importance', ascending=False)
-            
-            st.dataframe(feature_importance.head(10))
-            
-            # Key insights
-            st.subheader("Clinical Insights")
-            
-            top_features = feature_importance.head(3)['Feature'].tolist()
-            
-            insights = {
-                'time_in_hospital': "Longer hospital stays correlate with higher readmission risk due to increased disease complexity.",
-                'num_medications': "Patients on multiple medications show increased readmission likelihood due to comorbidities and polypharmacy risks.",
-                'num_lab_procedures': "High lab procedure counts indicate more intensive monitoring requirements and disease severity.",
-                'age': "Advanced age is associated with higher readmission risk due to decreased physiological reserve.",
-                'num_procedures': "Multiple procedures suggest complex medical needs requiring careful post-discharge management."
-            }
-            
-            for feature in top_features:
-                if any(key in feature.lower() for key in insights.keys()):
-                    matching_key = next(key for key in insights.keys() if key in feature.lower())
-                    st.info(f"**{feature}**: {insights[matching_key]}")
-            
-            # Model details
-            st.subheader("Model Configuration")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**XGBoost Parameters**")
-                st.write("- Algorithm: Gradient Boosting")
-                st.write("- Trees: 100")
-                st.write("- Max Depth: 6")
-                st.write("- Learning Rate: 0.1")
-            
-            with col2:
-                st.markdown("**Explainability Method**")
-                st.write("- Method: SHAP (SHapley Additive exPlanations)")
-                st.write("- Interpretation: Global + Local")
-                st.write("- Transparency: High")
-                st.write("- Feature Count:", len(predictor.feature_names))
-            
-            # Clinical recommendations
-            st.subheader("Clinical Recommendations")
-            
-            st.markdown("""
-            <div style='background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 10px 0;'>
-                <h4 style='margin-top: 0;'>High-Risk Patient Management</h4>
-                <p>Patients with risk probability above 70% should receive enhanced discharge planning, 
-                including comprehensive medication reconciliation and 48-hour follow-up appointments.</p>
-            </div>
-            
-            <div style='background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 10px 0;'>
-                <h4 style='margin-top: 0;'>Medication Optimization</h4>
-                <p>Review polypharmacy cases where patients are on more than 15 medications. 
-                Consider deprescribing protocols and pharmacist consultation.</p>
-            </div>
-            
-            <div style='background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0;'>
-                <h4 style='margin-top: 0;'>Resource Allocation</h4>
-                <p>Focus intensive case management resources on patients with extended hospital stays 
-                and multiple comorbidities for maximum impact.</p>
-            </div>
-            """, unsafe_allow_html=True)
             
     
     # ========================================================================
@@ -1408,6 +1339,7 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
