@@ -889,10 +889,35 @@ def main():
                         # Feature importance table
                         st.subheader("Top Feature Contributions")
                         
-                        feature_importance = pd.DataFrame({
-                            'Feature': predictor.feature_names,
-                            'Importance': np.abs(shap_values).mean(axis=0)
-                        }).sort_values('Importance', ascending=False)
+                        # --- FIX: Ensure SHAP values are flattened before computing feature importance ---
+                        try:
+                            # Convert shap_values to 2D array if it's 3D or has extra dimensions
+                            shap_array = np.array(shap_values)
+                            if shap_array.ndim > 2:
+                                shap_array = shap_array.reshape(shap_array.shape[0], -1)
+                        
+                            # Compute mean absolute SHAP importance per feature
+                            shap_importances = np.abs(shap_array).mean(axis=0)
+                        
+                            # Flatten in case it's still nested
+                            shap_importances = np.ravel(shap_importances)
+                        
+                            # Make sure feature names and importances have the same length
+                            feature_names = np.array(predictor.feature_names).ravel()
+                            min_len = min(len(feature_names), len(shap_importances))
+                            feature_names = feature_names[:min_len]
+                            shap_importances = shap_importances[:min_len]
+                        
+                            # Create feature importance DataFrame safely
+                            feature_importance = pd.DataFrame({
+                                'Feature': feature_names,
+                                'Importance': shap_importances
+                            }).sort_values('Importance', ascending=False)
+                        
+                        except Exception as e:
+                            st.error(f"SHAP feature importance calculation failed: {e}")
+                            feature_importance = pd.DataFrame(columns=["Feature", "Importance"])
+
                         
                         st.dataframe(feature_importance.head(15), use_container_width=True)
                         
@@ -1353,3 +1378,4 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
