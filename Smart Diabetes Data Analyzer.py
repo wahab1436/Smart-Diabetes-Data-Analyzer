@@ -851,7 +851,7 @@ def main():
     # PAGE 5: MODEL EXPLAINABILITY
     # ========================================================================
     elif page == "Model Explainability":
-    st.header("SHAP Model Explainability")
+        st.header("SHAP Model Explainability")
 
     if not st.session_state.get('predictions'):
         st.warning("Please train the prediction model first.")
@@ -1284,6 +1284,7 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
