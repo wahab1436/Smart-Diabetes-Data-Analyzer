@@ -1008,7 +1008,7 @@ def main():
                 except Exception as e:
                     st.warning("Could not generate clinical insights.")
             
-            # Model details
+             # Model details
             st.subheader("Model Configuration")
             
             col1, col2 = st.columns(2)
@@ -1030,72 +1030,76 @@ def main():
                 st.write("- Transparency: High")
                 st.write(f"- Feature Count: {len(predictor.feature_names)}")
             
-            # Feature importance table
+            # ======================================
+            # FEATURE IMPORTANCE
+            # ======================================
+            
             st.subheader("Top Feature Contributions")
             
-            if 'shap_values' in locals() and shap_values is not None:
-                try:
-                    # --- FIXED BLOCK START ---
-                    # Handle both single-output and multi-output SHAP outputs
+            feature_importance = pd.DataFrame(columns=["Feature", "Importance"])
+            
+            try:
+                # SHAP-based importance
+                if "shap_values" in globals() and shap_values is not None:
                     if isinstance(shap_values, list):
                         shap_values_mean = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
                     else:
                         shap_values_mean = np.abs(shap_values).mean(axis=0)
             
-                    shap_values_mean = np.ravel(shap_values_mean)  # Ensure 1D array
+                    shap_values_mean = np.ravel(shap_values_mean)
             
                     feature_importance = pd.DataFrame({
-                        'Feature': predictor.feature_names,
-                        'Importance': shap_values_mean
-                    }).sort_values('Importance', ascending=False)
-                    # --- FIXED BLOCK END ---
+                        "Feature": predictor.feature_names,
+                        "Importance": shap_values_mean
+                    }).sort_values("Importance", ascending=False)
             
-                except Exception as e:
-                    st.warning(f"Could not calculate SHAP-based importance: {e}")
-                    feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
-            else:
-                # Fallback: use model-based feature importance if SHAP failed
-                try:
-                    importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
+                else:
+                    # Fallback to XGBoost native importance
+                    importance_dict = predictor.model.get_booster().get_score(importance_type="gain")
+            
+                    if not importance_dict:
+                        importance_dict = predictor.model.get_booster().get_score(importance_type="total_gain")
             
                     feature_importance = pd.DataFrame([
                         {
-                            'Feature': predictor.feature_names[int(k.replace('f', ''))]
-                            if k.startswith('f') and k.replace('f', '').isdigit()
+                            "Feature": predictor.feature_names[int(k.replace("f", ""))]
+                            if k.startswith("f") and k.replace("f", "").isdigit()
                             else k,
-                            'Importance': v
+                            "Importance": v
                         }
                         for k, v in importance_dict.items()
-                    ]).sort_values('Importance', ascending=False)
+                    ]).sort_values("Importance", ascending=False)
             
-                except Exception as e:
-                    st.warning(f"Could not calculate fallback feature importance: {e}")
-                    feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
+            except Exception as e:
+                st.warning(f"Could not compute feature importance: {e}")
+                feature_importance = pd.DataFrame(columns=["Feature", "Importance"])
             
-            # Display feature importance if available
+            # ======================================
+            # DISPLAY RESULTS
+            # ======================================
+            
             if not feature_importance.empty:
                 st.dataframe(feature_importance.head(15), use_container_width=True)
             
-                # Optional: bar chart visualization
                 fig_bar = px.bar(
                     feature_importance.head(10),
-                    x='Importance',
-                    y='Feature',
-                    orientation='h',
-                    title='Top 10 Features by Importance',
-                    color='Importance',
-                    color_continuous_scale='Blues'
+                    x="Importance",
+                    y="Feature",
+                    orientation="h",
+                    title="Top 10 Features by Importance",
+                    color="Importance",
+                    color_continuous_scale="Blues"
                 )
-                fig_bar.update_layout(yaxis={'categoryorder': 'total ascending'})
+                fig_bar.update_layout(yaxis={"categoryorder": "total ascending"})
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
                 st.info("No valid feature importance data available.")
             
-            # Continue to next section
-            st.subheader("Clinical Insights")
+            # ======================================
+            # CLINICAL INSIGHTS
+            # ======================================
             
-            # Clinical recommendations
-            st.subheader("Clinical Recommendations")
+            st.subheader("Clinical Insights")
             
             st.markdown("""
             <div style='background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 10px 0;'>
@@ -1116,7 +1120,8 @@ def main():
                 and multiple comorbidities for maximum impact.</p>
             </div>
             """, unsafe_allow_html=True)
-
+            
+            
     
     # ========================================================================
     # PAGE 6: EXPORT RESULTS
@@ -1332,4 +1337,5 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
