@@ -1031,20 +1031,33 @@ def main():
                 st.write(f"- Feature Count: {len(predictor.feature_names)}")
             
             # Feature importance table
-            # Feature importance table (use SHAP if available, else fallback)
             st.subheader("Top Feature Contributions")
-
+            
             if 'shap_values' in locals() and shap_values is not None:
-                # SHAP succeeded
-                feature_importance = pd.DataFrame({
-                    'Feature': predictor.feature_names,
-                    'Importance': np.abs(shap_values).mean(axis=0)
-                }).sort_values('Importance', ascending=False)
+                try:
+                    # --- FIXED BLOCK START ---
+                    # Handle both single-output and multi-output SHAP outputs
+                    if isinstance(shap_values, list):
+                        shap_values_mean = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
+                    else:
+                        shap_values_mean = np.abs(shap_values).mean(axis=0)
+            
+                    shap_values_mean = np.ravel(shap_values_mean)  # Ensure 1D array
+            
+                    feature_importance = pd.DataFrame({
+                        'Feature': predictor.feature_names,
+                        'Importance': shap_values_mean
+                    }).sort_values('Importance', ascending=False)
+                    # --- FIXED BLOCK END ---
+            
+                except Exception as e:
+                    st.warning(f"Could not calculate SHAP-based importance: {e}")
+                    feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
             else:
                 # Fallback: use model-based feature importance if SHAP failed
                 try:
                     importance_dict = predictor.model.get_booster().get_score(importance_type='gain')
-
+            
                     feature_importance = pd.DataFrame([
                         {
                             'Feature': predictor.feature_names[int(k.replace('f', ''))]
@@ -1054,15 +1067,15 @@ def main():
                         }
                         for k, v in importance_dict.items()
                     ]).sort_values('Importance', ascending=False)
-
+            
                 except Exception as e:
                     st.warning(f"Could not calculate fallback feature importance: {e}")
                     feature_importance = pd.DataFrame(columns=['Feature', 'Importance'])
-
+            
             # Display feature importance if available
             if not feature_importance.empty:
                 st.dataframe(feature_importance.head(15), use_container_width=True)
-
+            
                 # Optional: bar chart visualization
                 fig_bar = px.bar(
                     feature_importance.head(10),
@@ -1077,7 +1090,7 @@ def main():
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
                 st.info("No valid feature importance data available.")
-
+            
             # Continue to next section
             st.subheader("Clinical Insights")
             
@@ -1103,6 +1116,7 @@ def main():
                 and multiple comorbidities for maximum impact.</p>
             </div>
             """, unsafe_allow_html=True)
+
     
     # ========================================================================
     # PAGE 6: EXPORT RESULTS
@@ -1318,3 +1332,4 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
