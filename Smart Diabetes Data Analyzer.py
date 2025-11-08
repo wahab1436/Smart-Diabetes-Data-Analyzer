@@ -218,48 +218,43 @@ class DataProcessor:
 # ============================================================================
 # MACHINE LEARNING MODEL
 # ============================================================================
-import numpy as np
-import shap
-import xgboost as xgb
-import pandas as pd
-from imblearn.over_sampling import SMOTE
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    recall_score, precision_score, f1_score,
-    roc_auc_score, classification_report, confusion_matrix
-)
-
 
 class DiabetesPredictor:
     """XGBoost-based prediction model for diabetes readmission risk"""
-
+    
     def __init__(self):
         self.model = None
         self.feature_names = None
         self.is_trained = False
-
+        
     def prepare_data(self, df, target_col='readmitted'):
         """Prepare data for model training"""
         if target_col not in df.columns:
             return None, None, None, None
-
+        
+        # Separate features and target
         X = df.drop(columns=[target_col])
         y = df[target_col]
-
+        
+        # Handle binary classification
         if y.dtype == 'object':
             y = (y != 'NO').astype(int)
-
+        
+        # Select numeric columns only for model
         numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
         X = X[numeric_cols]
+        
         self.feature_names = X.columns.tolist()
-
+        
         return train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
+    
     def train(self, X_train, y_train):
         """Train XGBoost model with SMOTE"""
+        # Apply SMOTE for class imbalance
         smote = SMOTE(random_state=42)
         X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
-
+        
+        # XGBoost with optimized hyperparameters
         self.model = xgb.XGBClassifier(
             n_estimators=100,
             max_depth=6,
@@ -272,107 +267,64 @@ class DiabetesPredictor:
             random_state=42,
             eval_metric='logloss'
         )
+        
         self.model.fit(X_train_balanced, y_train_balanced)
         self.is_trained = True
-
-        # Fix malformed base_score immediately after training
-        booster = self.model.get_booster()
-        booster.set_param({'base_score': '0.5'})
-
+        
         return self.model
-
+    
     def evaluate(self, X_test, y_test):
         """Evaluate model performance"""
-        if not self.is_trained:
-            raise RuntimeError("Model must be trained before evaluation.")
-
         y_pred = self.model.predict(X_test)
-        y_pred_proba = (
-            self.model.predict_proba(X_test) if hasattr(self.model, "predict_proba") else None
-        )
-
-        is_multiclass = len(set(y_test)) > 2
-
-        try:
-            roc_auc = (
-                roc_auc_score(y_test, y_pred_proba, multi_class='ovr')
-                if is_multiclass and y_pred_proba is not None
-                else roc_auc_score(y_test, y_pred_proba[:, 1])
-                if y_pred_proba is not None
-                else None
-            )
-        except Exception:
-            roc_auc = None
-
+        y_pred_proba = self.model.predict_proba(X_test)[:, 1]
+        
         metrics = {
-            'recall': recall_score(y_test, y_pred, average='weighted'),
-            'precision': precision_score(y_test, y_pred, average='weighted'),
-            'f1_score': f1_score(y_test, y_pred, average='weighted'),
-            'roc_auc': roc_auc,
+            'recall': recall_score(y_test, y_pred),
+            'roc_auc': roc_auc_score(y_test, y_pred_proba),
             'classification_report': classification_report(y_test, y_pred, output_dict=True),
             'confusion_matrix': confusion_matrix(y_test, y_pred)
         }
+        
         return metrics
-
+    
     def predict(self, X):
         """Make predictions"""
         if not self.is_trained:
-            raise RuntimeError("Model must be trained before making predictions.")
-
+            return None
+        
+        # Ensure columns match training data
         if self.feature_names:
             X = X[self.feature_names]
-
+        
         predictions = self.model.predict(X)
-        probabilities = (
-            self.model.predict_proba(X)[:, 1] if hasattr(self.model, "predict_proba") else None
-        )
+        probabilities = self.model.predict_proba(X)[:, 1]
+        
         return predictions, probabilities
-
+    
     def get_shap_values(self, X):
-        """Compute SHAP values safely with XGBoost — handles base_score and dtype issues"""
-        if not self.is_trained:
-            raise RuntimeError("Train the model before explaining it.")
-
-        if self.feature_names:
-            X = X[self.feature_names].copy()
-
-        # Ensure numeric data only
-        X = X.apply(pd.to_numeric, errors="coerce").fillna(0)
-
-        try:
-            booster = self.model.get_booster()
-            config = booster.save_config()
-
-            # Patch malformed base_score representation
-            if '"base_score": "[3.3333334E-1,3.3333334E-1,3.3333334E-1]"' in config:
-                booster.set_param({'base_score': '0.33333334'})
-
-            # Extra safety: fallback default
-            if 'base_score' not in config or '[3.333' in config:
-                booster.set_param({'base_score': '0.5'})
-
-        except Exception as e:
-            print("Could not patch base_score:", e)
-
-        try:
-            explainer = shap.TreeExplainer(self.model, feature_perturbation="interventional")
-            shap_values = explainer.shap_values(X)
-
-            # Handle list output
-            if isinstance(shap_values, list):
-                shap_values = shap_values[0]
-
-            # Check if SHAP values are valid
-            if shap_values is None or not hasattr(shap_values, "shape") or shap_values.size == 0:
-                print("SHAP returned empty or invalid results — falling back.")
-                return None, None
-
-            return shap_values, explainer
-
-        except Exception as e:
-            print(f"SHAP computation failed: {e}")
+        """Calculate SHAP values for explainability"""
+        if not self.is_trained or self.model is None:
             return None, None
-
+        
+        try:
+            # Ensure columns match
+            if self.feature_names:
+                X = X[self.feature_names]
+            
+            # Limit sample size for performance
+            X_sample = X.sample(min(100, len(X))) if len(X) > 100 else X
+            
+            explainer = shap.TreeExplainer(self.model)
+            shap_values = explainer.shap_values(X_sample)
+            
+            # Handle different SHAP output formats
+            if isinstance(shap_values, list):
+                shap_values = shap_values[1]  # For binary classification
+            
+            return shap_values, explainer, X_sample
+        except Exception as e:
+            st.error(f"SHAP calculation error: {str(e)}")
+            return None, None, None
 
 
 # ============================================================================
@@ -1123,7 +1075,76 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
+            # Feature importance table
+            st.subheader("Top Feature Contributions")
             
+            # Calculate mean absolute SHAP values
+            feature_importance = pd.DataFrame({
+                'Feature': predictor.feature_names,
+                'Importance': np.abs(shap_values).mean(axis=0)
+            }).sort_values('Importance', ascending=False)
+            
+            st.dataframe(feature_importance.head(10))
+            
+            # Key insights
+            st.subheader("Clinical Insights")
+            
+            top_features = feature_importance.head(3)['Feature'].tolist()
+            
+            insights = {
+                'time_in_hospital': "Longer hospital stays correlate with higher readmission risk due to increased disease complexity.",
+                'num_medications': "Patients on multiple medications show increased readmission likelihood due to comorbidities and polypharmacy risks.",
+                'num_lab_procedures': "High lab procedure counts indicate more intensive monitoring requirements and disease severity.",
+                'age': "Advanced age is associated with higher readmission risk due to decreased physiological reserve.",
+                'num_procedures': "Multiple procedures suggest complex medical needs requiring careful post-discharge management."
+            }
+            
+            for feature in top_features:
+                if any(key in feature.lower() for key in insights.keys()):
+                    matching_key = next(key for key in insights.keys() if key in feature.lower())
+                    st.info(f"**{feature}**: {insights[matching_key]}")
+            
+            # Model details
+            st.subheader("Model Configuration")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**XGBoost Parameters**")
+                st.write("- Algorithm: Gradient Boosting")
+                st.write("- Trees: 100")
+                st.write("- Max Depth: 6")
+                st.write("- Learning Rate: 0.1")
+            
+            with col2:
+                st.markdown("**Explainability Method**")
+                st.write("- Method: SHAP (SHapley Additive exPlanations)")
+                st.write("- Interpretation: Global + Local")
+                st.write("- Transparency: High")
+                st.write("- Feature Count:", len(predictor.feature_names))
+            
+            # Clinical recommendations
+            st.subheader("Clinical Recommendations")
+            
+            st.markdown("""
+            <div style='background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>High-Risk Patient Management</h4>
+                <p>Patients with risk probability above 70% should receive enhanced discharge planning, 
+                including comprehensive medication reconciliation and 48-hour follow-up appointments.</p>
+            </div>
+            
+            <div style='background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Medication Optimization</h4>
+                <p>Review polypharmacy cases where patients are on more than 15 medications. 
+                Consider deprescribing protocols and pharmacist consultation.</p>
+            </div>
+            
+            <div style='background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0;'>
+                <h4 style='margin-top: 0;'>Resource Allocation</h4>
+                <p>Focus intensive case management resources on patients with extended hospital stays 
+                and multiple comorbidities for maximum impact.</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     # ========================================================================
     # PAGE 6: EXPORT RESULTS
@@ -1339,7 +1360,3 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
-
-
-
-
