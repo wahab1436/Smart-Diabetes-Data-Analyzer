@@ -709,19 +709,28 @@ def main():
                             st.subheader("Model Performance Metrics")
                             col1, col2, col3, col4 = st.columns(4)
                             
-                            report = metrics['classification_report']['1']
+                            # Safely access classification report for class '1'
+                            classification_report_dict = metrics.get('classification_report', {})
+                            
+                            # Handle cases where '1' may not exist
+                            report = classification_report_dict.get('1') or classification_report_dict.get(1) or {
+                                'precision': 0,
+                                'recall': 0,
+                                'f1-score': 0
+                            }
                             
                             with col1:
-                                st.metric("Recall", f"{metrics['recall']:.3f}")
+                                st.metric("Recall", f"{metrics.get('recall', 0):.3f}")
                             
                             with col2:
-                                st.metric("Precision", f"{report['precision']:.3f}")
+                                st.metric("Precision", f"{report.get('precision', 0):.3f}")
                             
                             with col3:
-                                st.metric("F1-Score", f"{report['f1-score']:.3f}")
+                                st.metric("F1-Score", f"{report.get('f1-score', 0):.3f}")
                             
                             with col4:
-                                st.metric("ROC-AUC", f"{metrics['roc_auc']:.3f}")
+                                st.metric("ROC-AUC", f"{metrics.get('roc_auc', 0):.3f}")
+
                             
                             # Confusion Matrix
                             st.subheader("Confusion Matrix")
@@ -1337,5 +1346,6 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
