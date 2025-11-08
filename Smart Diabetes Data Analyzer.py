@@ -1135,131 +1135,131 @@ def main():
   # ========================================================================
   # PAGE 6: EXPORT RESULTS
   # =======================================================================
-   elif page == "Export Results":
-        st.header("Export Analysis Results")
-        
-        st.markdown("### Available Downloads")
-        
-        # Cleaned data
-        if st.session_state.cleaned_data is not None:
-            st.subheader("1. Cleaned Dataset")
-            csv_clean = st.session_state.cleaned_data.to_csv(index=False)
-            st.download_button(
-                label="Download Cleaned Data (CSV)",
-                data=csv_clean,
-                file_name="cleaned_diabetes_data.csv",
-                mime="text/csv",
-                key="download_cleaned"
-            )
-        
-        # Predictions
-        if st.session_state.predictions is not None:
-            st.subheader("2. Prediction Results")
-            
-            predictions = st.session_state.predictions['predictions']
-            probabilities = st.session_state.predictions['probabilities']
-            
-            results_df = pd.DataFrame({
-                'Patient_ID': range(1, len(predictions) + 1),
-                'Risk_Probability': probabilities,
-                'Risk_Category': ['High' if p > 0.7 else 'Medium' if p > 0.4 else 'Low' for p in probabilities],
-                'Predicted_Class': ['Readmitted' if p == 1 else 'Not Readmitted' for p in predictions]
-            })
-            
-            csv_pred = results_df.to_csv(index=False)
-            st.download_button(
-                label="Download Predictions (CSV)",
-                data=csv_pred,
-                file_name="readmission_predictions.csv",
-                mime="text/csv",
-                key="download_predictions"
-            )
-        
-        # Forecast
-        if st.session_state.forecast is not None:
-            st.subheader("3. Time-Series Forecast")
-            
-            forecast = st.session_state.forecast
-            csv_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'trend']].to_csv(index=False)
-            
-            st.download_button(
-                label="Download Forecast (CSV)",
-                data=csv_forecast,
-                file_name="diabetes_forecast.csv",
-                mime="text/csv",
-                key="download_forecast"
-            )
-        
-        # Model metrics
-        if st.session_state.model_metrics is not None:
-            st.subheader("4. Model Performance Report")
-            
-            metrics = st.session_state.model_metrics
-            report = metrics['classification_report']
-            
-            report_text = f"""
-            DIABETES READMISSION PREDICTION - MODEL PERFORMANCE REPORT
-            =========================================================
-            
-            Date Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            
-            PERFORMANCE METRICS:
-            -------------------
-            Recall (Sensitivity):    {metrics['recall']:.4f}
-            Precision:               {report['1']['precision']:.4f}
-            F1-Score:                {report['1']['f1-score']:.4f}
-            ROC-AUC Score:           {metrics['roc_auc']:.4f}
-            
-            CLASSIFICATION REPORT:
-            ---------------------
-            Class 0 (Not Readmitted):
-                Precision: {report['0']['precision']:.4f}
-                Recall:    {report['0']['recall']:.4f}
-                F1-Score:  {report['0']['f1-score']:.4f}
-                Support:   {report['0']['support']}
-            
-            Class 1 (Readmitted):
-                Precision: {report['1']['precision']:.4f}
-                Recall:    {report['1']['recall']:.4f}
-                F1-Score:  {report['1']['f1-score']:.4f}
-                Support:   {report['1']['support']}
-            
-            Overall Accuracy: {report['accuracy']:.4f}
-            
-            CONFUSION MATRIX:
-            ----------------
-            {metrics['confusion_matrix']}
-            
-            MODEL CONFIGURATION:
-            -------------------
-            Algorithm: XGBoost Classifier
-            Trees: 100
-            Max Depth: 6
-            Learning Rate: 0.1
-            Class Balancing: SMOTE
-            
-            DISCLAIMER:
-            ----------
-            This system is for research and educational use only.
-            Clinical decisions should not be based solely on model predictions.
-            Always consult with qualified healthcare professionals.
-            """
-            
-            st.download_button(
-                label="Download Performance Report (TXT)",
-                data=report_text,
-                file_name="model_performance_report.txt",
-                mime="text/plain",
-                key="download_report"
-            )
-        
-        # Complete analysis summary
-        st.subheader("5. Complete Analysis Package")
-        
-        st.info("Generate a comprehensive ZIP file containing all analysis outputs, visualizations, and reports.")
-        
-        if st.button("Generate Complete Package"):
-            st.warning("Complete package generation requires additional file handling. Individual downloads are available above.")
+           elif page == "Export Results":
+                st.header("Export Analysis Results")
+                
+                st.markdown("### Available Downloads")
+                
+                # Cleaned data
+                if st.session_state.cleaned_data is not None:
+                    st.subheader("1. Cleaned Dataset")
+                    csv_clean = st.session_state.cleaned_data.to_csv(index=False)
+                    st.download_button(
+                        label="Download Cleaned Data (CSV)",
+                        data=csv_clean,
+                        file_name="cleaned_diabetes_data.csv",
+                        mime="text/csv",
+                        key="download_cleaned"
+                    )
+                
+                # Predictions
+                if st.session_state.predictions is not None:
+                    st.subheader("2. Prediction Results")
+                    
+                    predictions = st.session_state.predictions['predictions']
+                    probabilities = st.session_state.predictions['probabilities']
+                    
+                    results_df = pd.DataFrame({
+                        'Patient_ID': range(1, len(predictions) + 1),
+                        'Risk_Probability': probabilities,
+                        'Risk_Category': ['High' if p > 0.7 else 'Medium' if p > 0.4 else 'Low' for p in probabilities],
+                        'Predicted_Class': ['Readmitted' if p == 1 else 'Not Readmitted' for p in predictions]
+                    })
+                    
+                    csv_pred = results_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Predictions (CSV)",
+                        data=csv_pred,
+                        file_name="readmission_predictions.csv",
+                        mime="text/csv",
+                        key="download_predictions"
+                    )
+                
+                # Forecast
+                if st.session_state.forecast is not None:
+                    st.subheader("3. Time-Series Forecast")
+                    
+                    forecast = st.session_state.forecast
+                    csv_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'trend']].to_csv(index=False)
+                    
+                    st.download_button(
+                        label="Download Forecast (CSV)",
+                        data=csv_forecast,
+                        file_name="diabetes_forecast.csv",
+                        mime="text/csv",
+                        key="download_forecast"
+                    )
+                
+                # Model metrics
+                if st.session_state.model_metrics is not None:
+                    st.subheader("4. Model Performance Report")
+                    
+                    metrics = st.session_state.model_metrics
+                    report = metrics['classification_report']
+                    
+                    report_text = f"""
+                    DIABETES READMISSION PREDICTION - MODEL PERFORMANCE REPORT
+                    =========================================================
+                    
+                    Date Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                    
+                    PERFORMANCE METRICS:
+                    -------------------
+                    Recall (Sensitivity):    {metrics['recall']:.4f}
+                    Precision:               {report['1']['precision']:.4f}
+                    F1-Score:                {report['1']['f1-score']:.4f}
+                    ROC-AUC Score:           {metrics['roc_auc']:.4f}
+                    
+                    CLASSIFICATION REPORT:
+                    ---------------------
+                    Class 0 (Not Readmitted):
+                        Precision: {report['0']['precision']:.4f}
+                        Recall:    {report['0']['recall']:.4f}
+                        F1-Score:  {report['0']['f1-score']:.4f}
+                        Support:   {report['0']['support']}
+                    
+                    Class 1 (Readmitted):
+                        Precision: {report['1']['precision']:.4f}
+                        Recall:    {report['1']['recall']:.4f}
+                        F1-Score:  {report['1']['f1-score']:.4f}
+                        Support:   {report['1']['support']}
+                    
+                    Overall Accuracy: {report['accuracy']:.4f}
+                    
+                    CONFUSION MATRIX:
+                    ----------------
+                    {metrics['confusion_matrix']}
+                    
+                    MODEL CONFIGURATION:
+                    -------------------
+                    Algorithm: XGBoost Classifier
+                    Trees: 100
+                    Max Depth: 6
+                    Learning Rate: 0.1
+                    Class Balancing: SMOTE
+                    
+                    DISCLAIMER:
+                    ----------
+                    This system is for research and educational use only.
+                    Clinical decisions should not be based solely on model predictions.
+                    Always consult with qualified healthcare professionals.
+                    """
+                    
+                    st.download_button(
+                        label="Download Performance Report (TXT)",
+                        data=report_text,
+                        file_name="model_performance_report.txt",
+                        mime="text/plain",
+                        key="download_report"
+                    )
+                
+                # Complete analysis summary
+                st.subheader("5. Complete Analysis Package")
+                
+                st.info("Generate a comprehensive ZIP file containing all analysis outputs, visualizations, and reports.")
+                
+                if st.button("Generate Complete Package"):
+                    st.warning("Complete package generation requires additional file handling. Individual downloads are available above.")
 
 
 
@@ -1307,6 +1307,7 @@ if __name__ == "__main__":
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
 
 
