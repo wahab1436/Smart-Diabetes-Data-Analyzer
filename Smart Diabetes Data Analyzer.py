@@ -1132,28 +1132,72 @@ def main():
             
             
     
-    # ========================================================================
-    # PAGE 6: EXPORT RESULTS
-    # ========================================================================
-    
-             from datetime import datetime
+  # ========================================================================
+  # PAGE 6: EXPORT RESULTS
+  # =======================================================================
+   elif page == "Export Results":
+        st.header("Export Analysis Results")
+        
+        st.markdown("### Available Downloads")
+        
+        # Cleaned data
+        if st.session_state.cleaned_data is not None:
+            st.subheader("1. Cleaned Dataset")
+            csv_clean = st.session_state.cleaned_data.to_csv(index=False)
+            st.download_button(
+                label="Download Cleaned Data (CSV)",
+                data=csv_clean,
+                file_name="cleaned_diabetes_data.csv",
+                mime="text/csv",
+                key="download_cleaned"
+            )
+        
+        # Predictions
+        if st.session_state.predictions is not None:
+            st.subheader("2. Prediction Results")
             
-            if st.session_state.model_metrics is not None:
-                st.subheader("4. Model Performance Report")
-                
-                metrics = st.session_state.model_metrics
-                classification_report_dict = metrics.get('classification_report', {})
-                
-                # Safely get class 0 and class 1 reports
-                report_0 = classification_report_dict.get('0') or classification_report_dict.get(0) or {
-                    'precision': 0, 'recall': 0, 'f1-score': 0, 'support': 0
-                }
-                
-                report_1 = classification_report_dict.get('1') or classification_report_dict.get(1) or {
-                    'precision': 0, 'recall': 0, 'f1-score': 0, 'support': 0
-                }
-                
-                report_text = f"""
+            predictions = st.session_state.predictions['predictions']
+            probabilities = st.session_state.predictions['probabilities']
+            
+            results_df = pd.DataFrame({
+                'Patient_ID': range(1, len(predictions) + 1),
+                'Risk_Probability': probabilities,
+                'Risk_Category': ['High' if p > 0.7 else 'Medium' if p > 0.4 else 'Low' for p in probabilities],
+                'Predicted_Class': ['Readmitted' if p == 1 else 'Not Readmitted' for p in predictions]
+            })
+            
+            csv_pred = results_df.to_csv(index=False)
+            st.download_button(
+                label="Download Predictions (CSV)",
+                data=csv_pred,
+                file_name="readmission_predictions.csv",
+                mime="text/csv",
+                key="download_predictions"
+            )
+        
+        # Forecast
+        if st.session_state.forecast is not None:
+            st.subheader("3. Time-Series Forecast")
+            
+            forecast = st.session_state.forecast
+            csv_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'trend']].to_csv(index=False)
+            
+            st.download_button(
+                label="Download Forecast (CSV)",
+                data=csv_forecast,
+                file_name="diabetes_forecast.csv",
+                mime="text/csv",
+                key="download_forecast"
+            )
+        
+        # Model metrics
+        if st.session_state.model_metrics is not None:
+            st.subheader("4. Model Performance Report")
+            
+            metrics = st.session_state.model_metrics
+            report = metrics['classification_report']
+            
+            report_text = f"""
             DIABETES READMISSION PREDICTION - MODEL PERFORMANCE REPORT
             =========================================================
             
@@ -1161,30 +1205,30 @@ def main():
             
             PERFORMANCE METRICS:
             -------------------
-            Recall (Sensitivity):    {metrics.get('recall', 0):.4f}
-            Precision:               {report_1.get('precision', 0):.4f}
-            F1-Score:                {report_1.get('f1-score', 0):.4f}
-            ROC-AUC Score:           {metrics.get('roc_auc', 0):.4f}
+            Recall (Sensitivity):    {metrics['recall']:.4f}
+            Precision:               {report['1']['precision']:.4f}
+            F1-Score:                {report['1']['f1-score']:.4f}
+            ROC-AUC Score:           {metrics['roc_auc']:.4f}
             
             CLASSIFICATION REPORT:
             ---------------------
             Class 0 (Not Readmitted):
-                Precision: {report_0.get('precision', 0):.4f}
-                Recall:    {report_0.get('recall', 0):.4f}
-                F1-Score:  {report_0.get('f1-score', 0):.4f}
-                Support:   {report_0.get('support', 0)}
+                Precision: {report['0']['precision']:.4f}
+                Recall:    {report['0']['recall']:.4f}
+                F1-Score:  {report['0']['f1-score']:.4f}
+                Support:   {report['0']['support']}
             
             Class 1 (Readmitted):
-                Precision: {report_1.get('precision', 0):.4f}
-                Recall:    {report_1.get('recall', 0):.4f}
-                F1-Score:  {report_1.get('f1-score', 0):.4f}
-                Support:   {report_1.get('support', 0)}
+                Precision: {report['1']['precision']:.4f}
+                Recall:    {report['1']['recall']:.4f}
+                F1-Score:  {report['1']['f1-score']:.4f}
+                Support:   {report['1']['support']}
             
-            Overall Accuracy: {classification_report_dict.get('accuracy', metrics.get('accuracy', 0)):.4f}
+            Overall Accuracy: {report['accuracy']:.4f}
             
             CONFUSION MATRIX:
             ----------------
-            {metrics.get('confusion_matrix', 'Not available')}
+            {metrics['confusion_matrix']}
             
             MODEL CONFIGURATION:
             -------------------
@@ -1200,54 +1244,24 @@ def main():
             Clinical decisions should not be based solely on model predictions.
             Always consult with qualified healthcare professionals.
             """
-                
-                st.download_button(
-                    label="Download Performance Report (TXT)",
-                    data=report_text,
-                    file_name="model_performance_report.txt",
-                    mime="text/plain",
-                    key="download_report"
-                )
+            
+            st.download_button(
+                label="Download Performance Report (TXT)",
+                data=report_text,
+                file_name="model_performance_report.txt",
+                mime="text/plain",
+                key="download_report"
+            )
+        
+        # Complete analysis summary
+        st.subheader("5. Complete Analysis Package")
+        
+        st.info("Generate a comprehensive ZIP file containing all analysis outputs, visualizations, and reports.")
+        
+        if st.button("Generate Complete Package"):
+            st.warning("Complete package generation requires additional file handling. Individual downloads are available above.")
 
 
-# ============================================================================
-# SAMPLE DATA GENERATOR (FOR TESTING)
-# ============================================================================
-
-def generate_sample_diabetes_data(n_samples=1000):
-    """Generate synthetic diabetes dataset for testing"""
-    np.random.seed(42)
-    
-    data = {
-        'patient_id': range(1, n_samples + 1),
-        'age': np.random.choice(['[0-10)', '[10-20)', '[20-30)', '[30-40)', '[40-50)', 
-                                '[50-60)', '[60-70)', '[70-80)', '[80-90)', '[90-100)'], n_samples),
-        'time_in_hospital': np.random.randint(1, 14, n_samples),
-        'num_lab_procedures': np.random.randint(1, 100, n_samples),
-        'num_procedures': np.random.randint(0, 6, n_samples),
-        'num_medications': np.random.randint(1, 30, n_samples),
-        'num_outpatient': np.random.randint(0, 20, n_samples),
-        'num_emergency': np.random.randint(0, 10, n_samples),
-        'num_inpatient': np.random.randint(0, 15, n_samples),
-        'number_diagnoses': np.random.randint(1, 16, n_samples),
-        'glucose_level': np.random.normal(120, 30, n_samples),
-        'A1C_level': np.random.normal(7.0, 1.5, n_samples),
-        'gender': np.random.choice(['Male', 'Female'], n_samples),
-        'race': np.random.choice(['Caucasian', 'African American', 'Hispanic', 'Asian', 'Other'], n_samples),
-        'admission_type': np.random.choice(['Emergency', 'Urgent', 'Elective'], n_samples),
-        'discharge_disposition': np.random.choice(['Home', 'Transfer', 'Expired'], n_samples, p=[0.8, 0.15, 0.05]),
-        'admission_source': np.random.choice(['Emergency Room', 'Physician Referral', 'Transfer'], n_samples),
-        'readmitted': np.random.choice(['NO', '<30', '>30'], n_samples, p=[0.5, 0.3, 0.2])
-    }
-    
-    df = pd.DataFrame(data)
-    
-    # Add some missing values
-    for col in ['num_procedures', 'A1C_level', 'glucose_level']:
-        mask = np.random.random(n_samples) < 0.1
-        df.loc[mask, col] = np.nan
-    
-    return df
 
 
 # ============================================================================
